@@ -1,9 +1,12 @@
 # eks-gitops-platform
 WIP - Architecture overview and documentation for a GitOps-driven CI/CD platform on AWS EKS
 
-Related repos
-- Terraform Infra: https://github.com/dana951/infra-aws
-- App + Pipeline: https://github.com/dana951/app-source
-- K8s Manifests: https://github.com/dana951/gitops-manifests
-- ArgoCD App of Apps: https://github.com/dana951/argocd-apps
-- Shared Jenkins Library: https://github.com/dana951/jenkins-shared-lib
+## Project Repositories
+
+| Repo | Description |
+|------|-------------|
+| [infra-aws](https://github.com/dana951/infra-aws) | Infrastructure provisioning for a production-grade EKS cluster hosting a GitOps-based CI/CD platform |
+| [app-source](https://github.com/dana951/app-source) | Application source code with a full CI pipeline driving a GitOps deployment workflow |
+| [gitops-manifests](https://github.com/dana951/gitops-manifests) | GitOps repository: the source of truth for Kubernetes workload state, owned and synced by ArgoCD |
+| [argocd-apps](https://github.com/dana951/argocd-apps) | ArgoCD bootstrap repository managing all application deployments via the App of Apps pattern |
+| [jenkins-shared-lib](https://github.com/dana951/jenkins-shared-lib) | Shared CI library providing reusable pipeline steps across all Jenkins-based pipelines |
