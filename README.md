@@ -10,3 +10,4 @@ WIP - Architecture overview and documentation for a GitOps-driven CI/CD platform
 | [gitops-manifests](https://github.com/dana951/gitops-manifests) | GitOps repository: the source of truth for Kubernetes workload state, owned and synced by ArgoCD |
 | [argocd-apps](https://github.com/dana951/argocd-apps) | ArgoCD bootstrap repository managing all application deployments via the App of Apps pattern |
 | [jenkins-shared-lib](https://github.com/dana951/jenkins-shared-lib) | Shared CI library providing reusable pipeline steps across all Jenkins-based pipelines |
+| [tests-repo](https://github.com/dana951/tests-repo.git) | Test automation repository with smoke and API E2E checks used as CI/CD validation gates |
