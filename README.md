@@ -1,16 +1,50 @@
 # eks-gitops-platform
 
-This is the metadata and entry-point repository for a GitOps-driven CI/CD platform on AWS EKS, with references to all repositories that make up the project in [Project Repositories](#project-repositories).
+This repository is the **entry point** and **metadata** for a GitOps-driven CI/CD platform on AWS EKS.
 
-## Executive Overview
+The implementation is spread across **six** companion repositories, each summarized in the `Project Repositories` table below.
+
+## Project Repositories
+
+| Repo | Description |
+|------|-------------|
+| [infra-aws](https://github.com/dana951/infra-aws) | Terraform provisioning for VPC, EKS, add-ons, and platform tooling |
+| [app-source](https://github.com/dana951/app-source) | Application source code with a full CI/CD pipeline driving a GitOps deployment workflow |
+| [gitops-manifests](https://github.com/dana951/gitops-manifests) | Kubernetes desired state (source of truth consumed by Argo CD) |
+| [argocd-apps](https://github.com/dana951/argocd-apps) | Argo CD bootstrap repository using App-of-Apps pattern and ApplicationSets |
+| [jenkins-shared-lib](https://github.com/dana951/jenkins-shared-lib) | Shared Jenkins pipeline library providing reusable pipeline steps|
+| [tests-repo](https://github.com/dana951/tests-repo.git) | Smoke and E2E test suite used as release quality gates |
+
+> Note: For spcific repo design and implementation details refer to the repo's **README** file.
+
+## Overview
 
 This project demonstrates a delivery model with clear separation of responsibilities:
 
-- **Infrastructure as Code** provisions AWS and EKS foundations.
-- **CI pipelines** build, test, and validate application artifacts.
-- **GitOps workflows** promote deployments through Git commits.
+- **Terraform (IaC)** provisions AWS network, EKS, add-ons, and tooling.
+- **GitHub Actions + Jenkins** run CI/CD, promotion, and quality gates.
+- **GitOps repository** hold desired Kubernetes state.
 - **Argo CD** continuously reconciles cluster state from Git.
 
+## CI/CD and GitOps Flow
+
+> This platform uses a **GitHub branch strategy** (short-lived branches and **pull requests into `main`**).
+
+For full workflow details, see [`app-source`](https://github.com/dana951/app-source) - where the application source, **GitHub Actions** workflows, and **Jenkins** pipelines (Jenkinsfile) resides.
+
+### High-level flow:
+
+1. **PR validation (CI)**
+   - GitHub Actions runs lint/unit tests and builds one Docker image (`{short-sha}-dev`).
+   - Jenkins creates an ephemeral GitOps branch/environment (`actions-pr-*`), waits for Argo CD sync, runs smoke/E2E, then tears it down.
+
+2. **Merge to main (promotion)**
+   - Pipeline promotes the same image artifact by **retagging only** (no rebuild).
+   - Jenkins updates staging manifests in GitOps repo, validates staging, waits for manual approval, then promotes to prod.
+
+3. **Deployment model**
+   - Argo CD applies desired state from Git repositories (Git is source of truth).
+   - Environments include ephemeral PR namespaces plus permanent `staging` and `prod`.
 
 ## Platform Architecture (High Level)
 
@@ -25,17 +59,172 @@ Core components and responsibilities:
 
 
 
-## Project Repositories
+## Current AWS/EKS Architecture (PoC)
 
-| Repo | Description |
-|------|-------------|
-| [infra-aws](https://github.com/dana951/infra-aws) | Infrastructure provisioning for a production-grade EKS cluster hosting a GitOps-based CI/CD platform |
-| [app-source](https://github.com/dana951/app-source) | Application source code with a full CI pipeline driving a GitOps deployment workflow |
-| [gitops-manifests](https://github.com/dana951/gitops-manifests) | GitOps repository: the source of truth for Kubernetes workload state, owned and synced by ArgoCD |
-| [argocd-apps](https://github.com/dana951/argocd-apps) | ArgoCD bootstrap repository managing all application deployments via the App of Apps pattern |
-| [jenkins-shared-lib](https://github.com/dana951/jenkins-shared-lib) | Shared CI library providing reusable pipeline steps across all Jenkins-based pipelines |
-| [tests-repo](https://github.com/dana951/tests-repo.git) | Test automation repository with smoke and API E2E checks used as CI/CD validation gates |
+### Network and cluster foundations
+
+- **Region:** `us-east-1`
+- **VPC:** `10.0.0.0/16`
+- **Subnets:** 3 public + 3 private subnets across AZs
+- **Internet egress:** 1 Internet Gateway + **single NAT Gateway**
+- **EKS endpoint:** private access **enabled** and public access **enabled**
+- **Public endpoint restriction:** operationally limited to operator IP range (security posture for admin access, CIDR Whitelisting)
+- **Worker placement:** all managed node groups are in **private subnets**
+
+### Managed node groups (private)
+
+All node groups are currently configured with `min=1`, `max=1`, `desired=1` (fixed-size for predictable PoC cost/behavior).
+
+Scheduling is enforced with **node labels** on each managed node group and matching **`nodeSelector`** on Deployments so workloads land only on the intended pool.
+
+| Node group | Purpose |
+|------------|---------|
+| `jenkins` | Jenkins controller and Argo CD |
+| `jenkins-agents` | Ephemeral Jenkins Kubernetes agents (build/test isolation) |
+| `github-runners` | Self-hosted GitHub Actions runners |
+| `podinfo-app` | Application workloads and environment-specific runtime pods |
+
+### Why 4 node groups?
+
+The split is intentional and production-aligned:
+
+- **Isolation of failure domains** - CI spikes or misbehaving runners do not impact core control-plane tooling.
+- **Independent scaling policy** - each capacity pool can scale with different rules and priorities.
+- **Workload-specific governance** - labels/taints and pod scheduling policies can be applied per class of workload.
+- **Security and blast-radius reduction** - tighter IAM/network policies per worker class are easier to enforce.
+
+
+### Access model (current)
+
+To minimize cost, Jenkins and Argo CD UI are currently accessed via `kubectl port-forward` to ClusterIP services (no public ingress/LB exposed for UIs in this PoC). The **AWS Load Balancer Controller** is installed with **Helm** as part of the cluster add-ons stack, but it is **not used** here - there are no `Ingress` resources wired to it in this PoC.
+
+
+## Cost-Optimized PoC Limitations
+
+This `POC` intentionally prioritizes cost over full production hardening.
+
+- Single AWS account and single EKS cluster host both tooling and app workloads.
+- Fixed-size node groups (`1/1/1`) and no Cluster Autoscaler/Karpenter.
+- Single NAT Gateway (cost-optimized, lower AZ-failure resilience).
+- Jenkins/Argo CD UI access via port-forward (no private ingress stack yet).
+- Docker Hub is used as image registry instead of ECR.
+- No observability stack.
+- EBS/EFS CSI drivers are installed, but persistent storage patterns are intentionally minimal in this phase.
+
+## Production considerations
+
+The sections below describe **production-grade** design considerations for this platform implementation.
+
+**Topics**
+
+- [Environment and account strategy](#prod-environment-and-account-strategy)
+- [Private enterprise access to Jenkins and Argo CD](#prod-private-enterprise-access-to-jenkins-and-argo-cd)
+- [Cluster autoscaling and node-group strategy](#prod-cluster-autoscaling-and-node-group-strategy)
+- [Secrets management for Jenkins and the platform](#prod-secrets-management-for-jenkins-and-the-platform)
+- [Persistent storage and Jenkins state](#prod-persistent-storage-and-jenkins-state)
+- [Container registry](#prod-container-registry)
+- [Monitoring and observability](#prod-monitoring-and-observability)
+
+---
+
+### Prod: Environment and account strategy
+
+For production, use **separate AWS accounts** (at minimum: `dev/test`, `staging`, `prod`; and a dedicated `shared-services/devops` account).
+
+- Run Argo CD in a management cluster/account.
+- Register workload clusters from other accounts in Argo CD.
+- Use Argo CD to deploy to multiple clusters from one control point.
+
+This model is a **Centralized Multi-Cluster Argo CD (Hub-and-Spoke) architecture**:
+- **Hub:** management/devops cluster (Argo CD control plane)
+- **Spokes:** workload clusters per environment/account
+
+This reduces blast radius, enforces stronger separation of duties, and aligns with enterprise governance.
+
+---
+
+### Prod: Private enterprise access to Jenkins and Argo CD
+
+Recommended production pattern for office/private access:
+
+- Deploy **Ingress** for Jenkins and Argo CD with **host-based routing** (`jenkins.<domain>`, `argocd.<domain>`).
+- Use AWS Load Balancer Controller with an **internal ALB** (private subnets).
+- Manage DNS with **Route 53 private hosted zone**.
+- Terminate TLS with **ACM certificates**.
+- Provide network path from office to VPC (e.g using **Site-to-Site VPN**)
+- Enforce access controls (e.g IP allowlists).
+
+---
+
+### Prod: Cluster autoscaling and node-group strategy
+
+In production, install **Cluster Autoscaler** (or Karpenter where appropriate):
+
+- Keep platform-critical group (`jenkins`) with safe minimum capacity.
+- Allow `jenkins-agents` and `github-runners` groups to **scale to zero** when idle.
+- Scale `podinfo-app` (or workload groups) independently based on workload demand.
+
+This reduces cost while preserving platform reliability and performance isolation.
+
+---
+
+### Prod: Secrets management for Jenkins and the platform
+
+Do not store secrets in Jenkins internal DB.
+
+Recommended approach:
+
+- Store secrets in **AWS Secrets Manager** (or SSM Parameter Store for specific use-cases).
+- Use **IRSA** so Jenkins and controllers read only the secrets they need.
+- Use **External Secrets Operator** (or Secrets Store CSI) to sync runtime Kubernetes secrets from AWS.
+- Keep Jenkins Configuration as Code (JCasC) in Git, with only **secret references**, never secret values.
+- Rotate secrets centrally and audit access via AWS APIs/CloudTrail.
+
+---
+
+### Prod: Persistent storage and Jenkins state
+
+What should persist in a mature setup:
+
+- Jenkins configuration baseline (Jenkins Configuration as Code (JCasC) in Git)
+- Job history/queue metadata (if retained)
+- Build logs/artifacts (prefer external object storage)
+
+Recommended pattern:
+
+- For shared/multi-AZ file persistence, prefer **EFS** for Jenkins home if persistence is required.
+- Use **EBS** only when single-AZ constraints are acceptable and documented.
+- Protect state with **AWS Backup/EBS snapshots**, tested restore runbooks, and periodic recovery drills.
+
+Practical note on AZ failure:
+- A single EBS volume is AZ-bound. If the AZ is unavailable, direct failover requires recovery from snapshot to a volume in another AZ.
+- EFS is regional and multi-AZ, which generally simplifies recovery objectives for stateful controllers.
+
+---
+
+### Prod: Container registry
+
+Move from Docker Hub to **Amazon ECR** in production:
+
+- Private registry integrated with IAM and CloudTrail
+- Better enterprise control (lifecycle policies, scanning, permissions)
+- Use **IRSA** for Jenkins agents and GitHub runners to pull/push images
+
+---
+
+### Prod: Monitoring and observability
+
+Add an end-to-end observability stack:
+
+- **Metrics:** Prometheus + Alertmanager (or AWS Managed Prometheus)
+- **Dashboards:** Grafana (or AWS Managed Grafana)
+- **Logs:** CloudWatch / Loki
+- **Kubernetes telemetry:** cluster, node, pod, API server, scheduler, etcd, CNI
+- **Platform:** Jenkins metrics (e.g. queue size, running executors, job success/failure rates, build duration for slow-stage analysis). Argo CD metrics (e.g. sync/health/drift, reconcile time).
+- **Alerting:** paging for availability and delivery failures, actionable notifications by team ownership
+
+---
 
 ## License
 
-Each repository contains its own license file. See the `LICENSE` file in the specific repository.
+Each repository contains its own license file. See `LICENSE` in the relevant repository.
