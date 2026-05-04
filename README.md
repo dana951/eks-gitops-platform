@@ -178,7 +178,7 @@ In production, install **Cluster Autoscaler** (or Karpenter where appropriate):
 
 - Keep platform-critical group (`jenkins`) with safe minimum capacity.
 - Allow `jenkins-agents` and `github-runners` groups to **scale to zero** when idle.
-- Scale `podinfo-app` (or workload groups) independently based on workload demand.
+- Scale `podinfo-app` independently based on workload demand.
 
 This reduces cost while preserving platform reliability and performance isolation.
 
