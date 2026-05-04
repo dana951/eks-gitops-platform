@@ -241,6 +241,105 @@ Add an end-to-end observability stack:
 
 ---
 
+## Appendix: Setup of self-hosted GitHub runners on Kubernetes (ARC)
+
+<details>
+<summary><strong>Expand: ARC setup steps</strong></summary>
+
+<br />
+
+This appendix documents the **manual** setup path for **self-hosted GitHub runners** on Kubernetes using `Actions Runner Controller (ARC)`.
+
+Actions Runner Controller (ARC) is a Kubernetes operator that orchestrates and scales self-hosted runners for GitHub Actions.
+
+> Note: For production environments, install and manage ARC through **automation** (e.g Terraform/GitOps).
+
+### Create a GitHub App for ARC
+
+ARC must [authenticate](https://docs.github.com/en/actions/how-tos/manage-runners/use-actions-runner-controller/authenticate-to-the-api#authenticating-arc-with-a-github-app) to the GitHub API.
+
+1. Go to Settings -> Developer settings -> GitHub Apps -> New GitHub App.
+2. Configure:
+   - **Homepage URL**: `https://github.com/actions/actions-runner-controller`
+   - Under **Repository permissions**:
+     - **Administration**: Read and write (required for repository-scope runner registration)
+   - Under **Organization permissions**:
+     - **Self-hosted runners**: Read and write
+   - **Webhook**: disable by unchecking **Active**
+3. Create the app, then copy the **App ID**.
+4. Under **Private keys**, click **Generate a private key** and download the `.pem` file.
+5. Install the app to the target repository (here: [app-source](https://github.com/dana951/app-source)) from **Install app**.
+6. Copy the **Installation ID** from the browser:
+   `https://github.com/settings/installations/<installation_id>`
+
+### ARC installation
+
+Need to install two helm charts:
+
+1. `gha-runner-scale-set-controller`
+2. `gha-runner-scale-set`
+
+Reference: [actions/actions-runner-controller](https://github.com/actions/actions-runner-controller)
+
+Before installation, ensure the runner namespace already exists (e.g: `github-runners`).  
+This is where self-hosted runner pods are created.
+
+#### 1) Create the GitHub App secret in Kubernetes
+
+Register the App ID, Installation ID, and private key as a Kubernetes secret:
+
+```bash
+kubectl create secret generic gha-runner-scale-set-secret \
+  --namespace=github-runners \
+  --from-literal=github_app_id=<your-github-app-id> \
+  --from-literal=github_app_installation_id=<your-github-app-installation-id> \
+  --from-file=github_app_private_key=<path-to-github-app-private-key.pem>
+```
+
+Set this in `gha-runner-scale-set` values:
+
+```yaml
+githubConfigSecret: gha-runner-scale-set-secret
+```
+
+#### 2) Install `gha-runner-scale-set-controller`
+
+Example (controller installed in `jenkins` namespace, chart version `0.14.0`):
+
+```bash
+helm install github-arc \
+  --namespace jenkins \
+  --create-namespace \
+  --version 0.14.0 \
+  oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller
+```
+
+#### 3) Install `gha-runner-scale-set`
+
+Install into the runner namespace (`github-runners` in this example):
+
+```bash
+helm install eks-gh-runner \
+  --namespace github-runners \
+  --create-namespace \
+  --version 0.14.0 \
+  --set githubConfigUrl=https://github.com/dana951/app-source \
+  --set githubConfigSecret=gha-runner-scale-set-secret \
+  oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
+```
+
+> Note: the release name you use here (e.g eks-gh-runner) is the "runs_on" values you will set in the github actions workflow
+
+### Runner image update warning ([official GitHub guidance](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#runner-software-updates-on-self-hosted-runners))
+
+GitHub warns that self-hosted runners must stay current:
+
+> Any updates released for the software, including major, minor, or patch releases, are considered as an available update. If you do not perform a software update within 30 days, the GitHub Actions service will not queue jobs to your runner. In addition, if a critical security update is required, the GitHub Actions service will not queue jobs to your runner until it has been updated.
+
+</details>
+
+---
+
 ## License
 
 Each repository contains its own license file. See `LICENSE` in the relevant repository.
