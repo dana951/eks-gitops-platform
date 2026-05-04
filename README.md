@@ -1,8 +1,10 @@
 # eks-gitops-platform
 
-This repository is the **entry point** and **metadata** for a GitOps-driven CI/CD platform on AWS EKS.
+This repository is the **entry point** and **metadata** for a `GitOps-driven` CI/CD platform on AWS EKS.
 
 The implementation is spread across **six** companion repositories, each summarized in the `Project Repositories` table below.
+
+> Built with: **GitHub Actions**, **Jenkins (JCasC)**, **AWS EKS**, **Helm**, **Docker**, **K8s**, **Python**, **Pytest**, **Groovy** (Jenkinsfiles and shared library)
 
 ## Project Repositories
 
@@ -30,21 +32,35 @@ This project demonstrates a delivery model with clear separation of responsibili
 
 > This platform uses a **GitHub branch strategy** (short-lived branches and **pull requests into `main`**).
 
-For full workflow details, see [`app-source`](https://github.com/dana951/app-source) - where the application source, **GitHub Actions** workflows, and **Jenkins** pipelines (Jenkinsfile) resides.
+This platform implements **continuous integration** (validate and build on every PR) and **continuous delivery/deployment** (promote the same container image through environments via GitOps, with gates before production). The app is packaged as a Helm chart; **image tags** are what move through the pipeline - **not** a rebuild of the image after PR validation.
 
-### High-level flow:
+### On pull request (`feature/*` → `main`)
 
-1. **PR validation (CI)**
-   - GitHub Actions runs lint/unit tests and builds one Docker image (`{short-sha}-dev`).
-   - Jenkins creates an ephemeral GitOps branch/environment (`actions-pr-*`), waits for Argo CD sync, runs smoke/E2E, then tears it down.
+1. **Lint / static analysis** and **unit tests** run in GitHub Actions.  
+2. **One Docker image** is built and pushed as `{short-sha}-dev` (seven-character SHA of the PR head).  
+3. **Jenkins** deploys an ephemeral [GitOps branch](https://github.com/dana951/gitops-manifests) and k8s namespace, waits for **Argo CD** to sync, then runs **smoke** and **E2E** tests against that environment.
 
-2. **Merge to main (promotion)**
-   - Pipeline promotes the same image artifact by **retagging only** (no rebuild).
-   - Jenkins updates staging manifests in GitOps repo, validates staging, waits for manual approval, then promotes to prod.
+### After merge to `main`
 
-3. **Deployment model**
-   - Argo CD applies desired state from Git repositories (Git is source of truth).
-   - Environments include ephemeral PR namespaces plus permanent `staging` and `prod`.
+1. The **same image** is **promoted by retagging only** (no rebuild): `{short-sha}` and `latest` on the registry.  
+2. **Jenkins** updates **staging** in the [GitOps repo](https://github.com/dana951/gitops-manifests); Argo CD deploys; **smoke** tests run.  
+3. A **human approval** step is required before **production** GitOps updates and **smoke** tests on prod.
+
+### Required GitHub settings
+
+These settings apply to the [**application**](https://github.com/dana951/app-source) repository where PR and merge workflows live.
+
+**Branch protection (`main`)** - *Settings → Branches → Add rule for `main`*
+
+- **Require a pull request before merging** - all changes land via PR.  
+- **Require branches to be up to date before merging** - PRs must include the latest `main`; add the workflow jobs as **required status checks** so nothing merges untested.
+
+**Merge strategy** - *Settings → General → Pull Requests*
+
+- Allow **merge commits** only; **disable squash and rebase** merges.  
+- Promotion uses the merge commit’s **second parent (`HEAD^2`)** to find the commit that was built and tested in PR validation. Squash/rebase rewrites history and breaks that link, so promotion would target an image that was never built in this pipeline.
+
+For workflow file names, required status checks, secrets, and concurrency behavior, see the **[app-source](https://github.com/dana951/app-source)** repository README (application source, GitHub Actions workflows, and Jenkinsfiles).
 
 ## Platform Architecture (High Level)
 
