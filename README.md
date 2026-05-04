@@ -254,6 +254,8 @@ Actions Runner Controller (ARC) is a Kubernetes operator that orchestrates and s
 
 > Note: For production environments, install and manage ARC through **automation** (e.g Terraform/GitOps).
 
+> Note: GitHub recommends using self-hosted runners only for private repos, since fork PRs can run untrusted code. Here, app-source is public (PoC), so only approved contributors can open fork-based PRs.
+
 ### Create a GitHub App for ARC
 
 ARC must [authenticate](https://docs.github.com/en/actions/how-tos/manage-runners/use-actions-runner-controller/authenticate-to-the-api#authenticating-arc-with-a-github-app) to the GitHub API.
