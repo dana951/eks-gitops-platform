@@ -41,7 +41,7 @@ This project demonstrates a delivery model with clear separation of responsibili
 1. In GitHub Actions workflow - **Lint / static analysis** → **unit tests** → build **Docker image** with tag `{short-sha}-dev` → push to Docker Registry → triggers Jenkins → wait for Jenkins build status. 
 2. **Jenkins** runs **smoke** and **E2E** tests against `preview environment` (ephemeral, isolated testing env), it does that by → creating a side branch in [gitops-manifests](https://github.com/dana951/gitops-manifests) repository (with a specific naming format) and an environment values file containing the `{short-sha}-dev` image tag → open PR → wait for **Argo CD** sync → run tests once the environment is ready.
 
-### After merge to `main`
+### On Merge to `main`
 
 1. In GitHub Actions workflow - the **same image** is **promoted by retagging only** (no rebuild) as `{short-sha}` and `latest` in the registry → triggers Jenkins → wait for Jenkins build status.  
 2. **Jenkins** updates **staging** values file in the [gitops-manifests](https://github.com/dana951/gitops-manifests) repository → wait for **Argo CD** sync → run **smoke** tests once the environment is ready → wait for **human approval** → upon approval updates **prod** values file in the [gitops-manifests](https://github.com/dana951/gitops-manifests) → wait for **Argo CD** sync → run **smoke** tests once the environment is ready.
