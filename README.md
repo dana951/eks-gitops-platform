@@ -32,19 +32,20 @@ This project demonstrates a delivery model with clear separation of responsibili
 
 > This platform uses a **GitHub branch strategy** (short-lived branches and **pull requests into `main`**).
 
-This platform implements **continuous integration** (validate and build on every PR) and **continuous delivery/deployment** (promote the same container image through environments via GitOps, with gates before production). The app is packaged as a Helm chart; **image tags** are what move through the pipeline - **not** a rebuild of the image after PR validation.
+- This platform implements **continuous integration** and **continuous delivery/deployment**.
+- The app is packaged as a Helm chart
+- **Image tags** are what move through the pipeline - **not** a rebuild of the image after PR validation.
 
 ### On pull request (`feature/*` → `main`)
 
-1. **Lint / static analysis** and **unit tests** run in GitHub Actions.  
-2. **One Docker image** is built and pushed as `{short-sha}-dev` (seven-character SHA of the PR head).  
-3. **Jenkins** deploys an ephemeral [GitOps branch](https://github.com/dana951/gitops-manifests) and k8s namespace, waits for **Argo CD** to sync, then runs **smoke** and **E2E** tests against that environment.
+1. In GitHub Actions workflow - **Lint / static analysis** → **unit tests** → build **Docker image** with tag `{short-sha}-dev` → push to Docker Registry → triggers Jenkins → wait for Jenkins build status. 
+2. **Jenkins** runs **smoke** and **E2E** tests against `preview environment` (ephemeral, isolated testing env), it does that by → creating a side branch in [gitops-manifests](https://github.com/dana951/gitops-manifests) repository (with a specific naming format) and an environment values file containing the `{short-sha}-dev` image tag → open PR → wait for **Argo CD** sync → run tests once the environment is ready.
 
 ### After merge to `main`
 
-1. The **same image** is **promoted by retagging only** (no rebuild): `{short-sha}` and `latest` on the registry.  
-2. **Jenkins** updates **staging** in the [GitOps repo](https://github.com/dana951/gitops-manifests); Argo CD deploys; **smoke** tests run.  
-3. A **human approval** step is required before **production** GitOps updates and **smoke** tests on prod.
+1. In GitHub Actions workflow - the **same image** is **promoted by retagging only** (no rebuild) as `{short-sha}` and `latest` in the registry → triggers Jenkins → wait for Jenkins build status.  
+2. **Jenkins** updates **staging** values file in the [gitops-manifests](https://github.com/dana951/gitops-manifests) repository → wait for **Argo CD** sync → run **smoke** tests once the environment is ready → wait for **human approval** → upon approval updates **prod** values file in the [gitops-manifests](https://github.com/dana951/gitops-manifests) → wait for **Argo CD** sync → run **smoke** tests once the environment is ready.
+3. TBD: Define rollback flow for failure scenarios.
 
 ### Required GitHub settings
 
