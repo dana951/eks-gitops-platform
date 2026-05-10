@@ -45,7 +45,16 @@ This project demonstrates a delivery model with clear separation of responsibili
 
 1. In GitHub Actions workflow - the **same image** is **promoted by retagging only** (no rebuild) as `{short-sha}` and `latest` in the registry → triggers Jenkins → wait for Jenkins build status.  
 2. **Jenkins** updates **staging** values file in the [gitops-manifests](https://github.com/dana951/gitops-manifests) repository → wait for **Argo CD** sync → run **smoke** tests once the environment is ready → wait for **human approval** → upon approval updates **prod** values file in the [gitops-manifests](https://github.com/dana951/gitops-manifests) → wait for **Argo CD** sync → run **smoke** tests once the environment is ready.
-3. TBD: Define rollback flow for failure scenarios.
+
+### Rollback behavior
+
+The platform uses a **safety-first rollback model** to protect production stability:
+
+- **Production rollback is automatic** if a pipeline `failure` or `abort` happens after the prod update is pushed to the GitOps repository.
+- The pipeline restores the **last known stable production version** by creating a **new GitOps commit** that sets production back to the previously live image tag (instead of reverting an older commit), then Argo CD reconciles the cluster to that desired state.
+- A new rollback commit (forward commit) is used instead of `git revert` to avoid accidentally undoing unrelated changes that may have landed on `main` between the deploy and the rollback.
+- If deployment is stopped at the **manual approval gate**, production remains unchanged.
+- **Staging is not auto-rolled back** on failure; it is intentionally left available for troubleshooting, and a later run replaces it.
 
 ### Required GitHub settings
 
